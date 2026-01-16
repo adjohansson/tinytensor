@@ -43,7 +43,8 @@ class Node:
         """
         State that the value of this node is 'value'. Does modify the node internally.
         """
-        assert _shapes_agree(self._shape, value.shape)
+        if not _shapes_agree(self._shape, value.shape):
+            raise ValueError(f"Cannot assign value of shape {value.shape} to node of shape {self._shape}.")
         return NodeValue(self, value)
 
     @property
@@ -66,7 +67,8 @@ class Parameter(Node):
         self.requires_grad = requires_grad
 
     def set(self, value: np.ndarray):
-        assert _shapes_agree(self.shape, value.shape)
+        if not _shapes_agree(self.shape, value.shape):
+            raise ValueError(f"Cannot assign value of shape {value.shape} to parameter of shape {self._shape}.")
         self.value = value
 
     def add_grad(self, grad: np.ndarray):
@@ -91,7 +93,8 @@ class DataNode(Node):
         self._filled = False
         
     def fill(self, data: np.ndarray):
-        assert _shapes_agree(self.shape, data.shape)
+        if not _shapes_agree(self.shape, data.shape):
+            raise ValueError(f"Cannot assign data of shape {data.shape} to DataNode of shape {self._shape}.")
         self._data = data
         self._filled = True
     
@@ -140,7 +143,7 @@ class Operation(Node):
             self._in_node_values[node_value.node.id_] = node_value
         return self._out_value
 
-    def forward_pass(self) -> NodeValue:
+    def forward_pass(self, cache: Optional[Dict[Node, NodeValue]] = None) -> NodeValue:
         """
         Recursively retrieves the output values from previous nodes in the graph and returns the output value
         """
@@ -153,7 +156,10 @@ class Operation(Node):
             elif isinstance(node, DataNode):
                 node_with_value = node.collect()
             elif isinstance(node, Operation):
-                node_with_value = node.forward_pass()
+                if cache is not None and node in cache:
+                    node_with_value = cache[node]
+                else:
+                    node_with_value = node.forward_pass(cache)
             else:
                 raise ValueError()
             node_values.append(node_with_value)
@@ -271,13 +277,13 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
                     np.exp(x) / (np.exp(x) + 1.0))
 
 
-def _softmax(x: np.ndarray, axis: Optional[int]) -> np.ndarray:
+def softmax(x: np.ndarray, axis: Optional[int]) -> np.ndarray:
     baseline = np.max(x, axis=axis, keepdims=True)
     e = np.exp(x-baseline)
     return e / e.sum(axis=axis, keepdims=True)
 
 
-def _log_softmax(x: np.ndarray, axis: Optional[int]) -> np.ndarray:
+def log_softmax(x: np.ndarray, axis: Optional[int]) -> np.ndarray:
     baseline = np.max(x, axis=axis, keepdims=True)
     d = x - baseline
     return d - np.log(np.sum(np.exp(d), axis=axis, keepdims=True))
@@ -347,7 +353,7 @@ class CrossEntropyLoss(Operation):
         assert in_value is not None
         assert target_value is not None
 
-        out_value = -(target_value * _log_softmax(in_value, axis=-1)).sum(axis=-1)
+        out_value = -(target_value * log_softmax(in_value, axis=-1)).sum(axis=-1)
         if self.reduction == "mean":
             out_value = out_value.mean()
         elif self.reduction == "sum":
@@ -362,7 +368,7 @@ class CrossEntropyLoss(Operation):
         target = self._in_node_values[self.target_node.id_].value  # pyright: ignore
         target_sum = np.sum(target, axis=-1, keepdims=True)
 
-        function_grad = target_sum * _softmax(x, axis=-1) - target  # Shape (batch, categories)
+        function_grad = target_sum * softmax(x, axis=-1) - target  # Shape (batch, categories)
         in_grad = function_grad * grad.value  # Shape (batch, categories)*() = (batch, categories)
         if self.reduction == "mean":
             in_grad *= in_grad.shape[-1]
