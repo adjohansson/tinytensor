@@ -1,13 +1,12 @@
 [build-system]
 requires = [
     "setuptools >= 77.0.3",
-    "numpy >= 2.0.0",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tinytensor"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
   { name="Adam Johansson", email="adam.johansson.144@gmail.com" },
 ]
@@ -17,6 +16,9 @@ requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>2.0.0"
 ]
 
 [project.urls]
