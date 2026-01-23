@@ -1,4 +1,4 @@
-from tiny_neural_engine.layers import Linear, Parameter
+from tinytensor.layers import Linear, Parameter
 import numpy as np
 
 

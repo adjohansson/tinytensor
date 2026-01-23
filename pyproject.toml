@@ -6,7 +6,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tiny_neural_engine"
+name = "tinytensor"
 version = "0.0.1"
 authors = [
   { name="Adam Johansson", email="adam.johansson.144@gmail.com" },
@@ -20,5 +20,5 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LordKelvin144/ToyCarRL"
-Issues = "https://github.com/LordKelvin144/ToyCarRL/issues"
+Homepage = "https://github.com/adjohansson/tinytensor"
+Issues = "https://github.com/adjohansson/tinytensor/issues"
