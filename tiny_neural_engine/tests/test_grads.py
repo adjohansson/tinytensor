@@ -11,7 +11,7 @@ def test_linear():
     w_np = linear.weight.value
     b_np = linear.bias.value
 
-    out_np = linear([x.with_value(x.value)]).value.sum(0)
+    out_np = linear(x.with_value(x.value)).value.sum(0)
 
     linear.backward_pass()
 
@@ -45,8 +45,7 @@ def test_sigmoid():
     w_np = linear.weight.value
     b_np = linear.bias.value
 
-    logits = linear([x.with_value(x.value)])
-    out_np = sigmoid([logits]).value.sum(0)
+    out_np = sigmoid(x.with_value(x.value)).value.sum(0)
 
     sigmoid.backward_pass()
 
@@ -81,8 +80,7 @@ def test_relu():
     w_np = linear.weight.value
     b_np = linear.bias.value
 
-    logits = linear([x.with_value(x.value)])
-    out_np = relu([logits]).value.sum(0)
+    out_np = relu(x.with_value(x.value)).value.sum(0)
 
     relu.backward_pass()
 
@@ -119,7 +117,7 @@ def test_bce():
 
     bce = BCE(logits, target)
 
-    out_np = bce([logits.with_value(logits.value), target.with_value(target.value)]).value
+    out_np = bce(logits.with_value(logits.value), target.with_value(target.value)).value
 
     bce.backward_pass()
 
@@ -148,7 +146,7 @@ def test_ce():
 
     loss = CrossEntropyLoss(logits, target)
 
-    out_np = loss([logits.with_value(logits.value), target.with_value(target.value)]).value
+    out_np = loss(logits.with_value(logits.value), target.with_value(target.value)).value
 
     loss.backward_pass()
 

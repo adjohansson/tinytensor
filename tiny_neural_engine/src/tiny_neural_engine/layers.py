@@ -1,11 +1,9 @@
 import numpy as np
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
-import itertools
-
-from typing import Tuple, List, Dict, Optional, Any
+from typing import Set, Tuple, List, Dict, Optional, Any
 
 
 def _shapes_agree(shape1: Tuple[Optional[int], ...], shape2: Tuple[Optional[int]]) -> bool:
@@ -18,7 +16,10 @@ def _shapes_agree(shape1: Tuple[Optional[int], ...], shape2: Tuple[Optional[int]
         if s != v:
             return False
     return True
-    
+
+
+class EmptyDataError(ValueError):
+    pass
 
 
 class Node:
@@ -34,10 +35,6 @@ class Node:
         self._id = Node._N_NODES
         Node._N_NODES += 1
         self._shape = shape
-
-    @property
-    def id_(self) -> int:
-        return self._id
 
     def with_value(self, value: np.ndarray) -> 'NodeValue':
         """
@@ -89,20 +86,6 @@ class DataNode(Node):
     def __init__(self, name: str, shape: Tuple[Optional[int], ...]):
         super().__init__(shape=shape)
         self.name = name
-        self._data: Optional[np.ndarray] = None
-        self._filled = False
-        
-    def fill(self, data: np.ndarray):
-        if not _shapes_agree(self.shape, data.shape):
-            raise ValueError(f"Cannot assign data of shape {data.shape} to DataNode of shape {self._shape}.")
-        self._data = data
-        self._filled = True
-    
-    def collect(self) -> 'NodeValue':
-        if not self._filled:
-            raise ValueError(f"Cannot collect value from unfilled DataNode: {self}")
-        assert self._data is not None
-        return self.with_value(self._data)
 
     def __repr__(self):
         return f"DataNode({self.name}, shape={self.shape})"
@@ -120,74 +103,91 @@ class NodeValue:
 class Operation(Node):
     def __init__(self, in_nodes: List[Node], parameters: List[Parameter], shape: Tuple[Optional[int], ...]):
         super().__init__(shape=shape)
-        self._in_nodes = {node.id_: node for node in in_nodes}
-        self._parameters = {node.id_: node for node in parameters}
-        self._in_node_values: Dict[int, Optional[NodeValue]] = {node.id_: None for node in in_nodes}
-        self._out_value: Optional[NodeValue] = None
+        self._in_nodes = in_nodes
+        self._parameters = parameters
+        self._out_shape: Optional[Tuple[int, ...]] = None
+
+        self._all_parameters = self._seek_parameters()
+        self._requires_grad: Optional[bool] = None
 
     @abstractmethod
-    def forward(self, node_values: List[NodeValue], *args: Any, **kwargs: Any) -> NodeValue:
+    def _forward(self, node_values: Dict[Node, NodeValue], *args: Any, **kwargs: Any) -> NodeValue:
         """Recieves a specification of the values at all input nodes. Should compute the value of the operations's output node."""
 
     @abstractmethod
-    def backward(self, grad: NodeValue) -> List[NodeValue]:
+    def _backward(self, grad: NodeValue) -> List[NodeValue]:
         """
         Recieves a specification of the loss gradient at the output node (or it is assumed to be scalar 1.0 if grad=None).
         The function should then compute the corresponding loss gradient at the input nodes.
         """
 
-    def __call__(self, node_values: List[NodeValue], *args: Any, **kwargs: Any) -> NodeValue:
-        assert set(node_value.node.id_ for node_value in node_values)
-        self._out_value = self.forward(node_values, *args, **kwargs)
-        for node_value in node_values:
-            self._in_node_values[node_value.node.id_] = node_value
-        return self._out_value
+    def __call__(self, *node_values: NodeValue) -> NodeValue:
+        return self._forward_pass({node_value.node: node_value for node_value in node_values})
 
-    def forward_pass(self, cache: Optional[Dict[Node, NodeValue]] = None) -> NodeValue:
+    def _forward_pass(self, values: Optional[Dict[Node, NodeValue]] = None) -> NodeValue:
         """
         Recursively retrieves the output values from previous nodes in the graph and returns the output value
         """
-        node_values = []
-        for node in self._in_nodes.values():
+        self._requires_grad = any(param.requires_grad for param in self._parameters)
+        if values is None:
+            values = {}
+
+        in_node_values = {}
+        for node in self._in_nodes:
+
+            # If this value is cached, we return it
+            if node in values:
+                value = values[node]
             
-            if isinstance(node, Parameter):
-                value = node.value
-                node_with_value = node.with_value(value)
+            # If it is a DataNode, it needs to be cached already, 
+            # otherwise there is no source of truth
             elif isinstance(node, DataNode):
-                node_with_value = node.collect()
+                raise EmptyDataError(f"DataNode {node} was not filled during forward pass.")
+
+            # If it is an operation, we recursively compute its value from the parents in the graph
             elif isinstance(node, Operation):
-                if cache is not None and node in cache:
-                    node_with_value = cache[node]
-                else:
-                    node_with_value = node.forward_pass(cache)
+                value = node._forward_pass(values)
+                self._requires_grad = self._requires_grad or node._requires_grad
             else:
                 raise ValueError()
-            node_values.append(node_with_value)
-        return self(node_values=node_values)
+
+            # Register the value at the node
+            in_node_values[node] = value
+
+        # Use the input notes' values to compute the output of this node
+        out_value = self._forward(in_node_values)
+        self._out_shape = out_value.value.shape
+        return out_value
 
     def backward_pass(self, grad: Optional[NodeValue] = None):
-        assert self._out_value is not None
+        assert self._out_shape is not None
         if grad is None:
-            grad = self.with_value(np.ones(self._out_value.value.shape))
-        input_grads = self.backward(grad)
+            grad = self.with_value(np.ones(self._out_shape))
+        input_grads = self._backward(grad)
         for grad_value in input_grads:
             input_node = grad_value.node
             if isinstance(input_node, Operation):
-                if not any(param.requires_grad for param in input_node.parameters()):
-                    continue
-                input_node.backward_pass(grad_value)
+                assert input_node._requires_grad is not None
+                if input_node._requires_grad:
+                    input_node.backward_pass(grad_value)
             elif isinstance(input_node, Parameter) and input_node.requires_grad:
                 input_node.add_grad(grad=grad_value.value)
 
+    def _seek_parameters(self) -> Set[Parameter]:
+        parameters = set(self._parameters)
+        for in_node in self._in_nodes:
+            if isinstance(in_node, Parameter):
+                parameters |= {in_node}
+            elif isinstance(in_node, Operation):
+                parameters |= in_node._all_parameters
+
+        return parameters
+
     def parameters(self) -> List[Parameter]:
-        child_parameters = list(itertools.chain.from_iterable(
-            in_node.parameters() if isinstance(in_node, Operation) else [in_node] if isinstance(in_node, Parameter) else [] 
-            for in_node in self._in_nodes.values()
-        ))
-        return child_parameters + list(self._parameters.values())
+        return list(self._all_parameters)
 
     def zero_grad(self):
-        for parameter in self.parameters():
+        for parameter in self._all_parameters:
             parameter.grad = None
 
 
@@ -198,21 +198,21 @@ class Linear(Operation):
         self.weight = Parameter("weight", np.random.randn(fan_in, out_features) / np.sqrt(fan_in), requires_grad=True)
         self.bias = Parameter("bias", np.random.randn(out_features)*0.01, requires_grad=True)
         self.in_node = input_node
+
+        self._in_value: Optional[np.ndarray] = None
         super().__init__(in_nodes=[input_node], parameters=[self.weight, self.bias], shape=(None, out_features))
 
-    def forward(self, node_values: List[NodeValue]) -> NodeValue:
-        in_value = node_values[0]
+    def _forward(self, node_values: Dict[Node, NodeValue]) -> NodeValue:
+        self._in_value = node_values[self.in_node].value
 
-        out_value = in_value.value @ self.weight.value + self.bias.value
+        out_value = self._in_value @ self.weight.value + self.bias.value
         return self.with_value(out_value)
 
-    def backward(self, grad: NodeValue) -> List[NodeValue]:
-        in_node_value = self._in_node_values[self.in_node.id_]
-        assert in_node_value is not None
-        in_value = in_node_value.value  # Shape (batch, in_features)
+    def _backward(self, grad: NodeValue) -> List[NodeValue]:
+        assert self._in_value is not None
 
         grads = [
-            self.weight.with_value(in_value.T @ grad.value),  # (batch, in_features).T @ (batch, out_features) -> (in_features, out_features)
+            self.weight.with_value(self._in_value.T @ grad.value),  # (batch, in_features).T @ (batch, out_features) -> (in_features, out_features)
             self.bias.with_value(grad.value.sum(axis=0)),  # (batch, out_features,) -> (out_features,)
         ]
         if isinstance(self.in_node, Operation) or isinstance(self.in_node, Parameter) and self.in_node.requires_grad:
@@ -227,18 +227,18 @@ class Sigmoid(Operation):
     def __init__(self, input_node: Node):
         super().__init__(in_nodes=[input_node], parameters=[], shape=input_node.shape)
         self.in_node = input_node
+        self._out_value: Optional[np.ndarray] = None
 
-    def forward(self, node_values: List[NodeValue]) -> NodeValue:
-        in_value = node_values[0]
+    def _forward(self, node_values: Dict[Node, NodeValue]) -> NodeValue:
+        in_value = node_values[self.in_node]
 
-        out_value = 1.0 / (1.0 + np.exp(-in_value.value))
-        return self.with_value(out_value)
+        self._out_value = 1.0 / (1.0 + np.exp(-in_value.value))
+        return self.with_value(self._out_value)
 
-    def backward(self, grad: NodeValue) -> List[NodeValue]:
+    def _backward(self, grad: NodeValue) -> List[NodeValue]:
         assert self._out_value is not None
-        out_value = self._out_value.value
 
-        function_grad = out_value * (1.0 - out_value)  # ds(x)/dx
+        function_grad = self._out_value * (1.0 - self._out_value)  # ds(x)/dx
         grads = [
             self.in_node.with_value(function_grad * grad.value)
         ]
@@ -249,19 +249,18 @@ class ReLU(Operation):
     def __init__(self, input_node: Node):
         super().__init__(in_nodes=[input_node], parameters=[], shape=input_node.shape)
         self.in_node = input_node
+        self._in_value: Optional[np.ndarray] = None
 
-    def forward(self, node_values: List[NodeValue]) -> NodeValue:
-        in_value = node_values[0]
+    def _forward(self, node_values: Dict[Node, NodeValue]) -> NodeValue:
+        self._in_value = node_values[self.in_node].value
 
-        out_value = np.clip(in_value.value, a_min=0.0, a_max=None)
+        out_value = np.clip(self._in_value, a_min=0.0, a_max=None)
         return self.with_value(out_value)
 
-    def backward(self, grad: NodeValue) -> List[NodeValue]:
-        in_node_value = self._in_node_values[self.in_node.id_]
-        assert in_node_value is not None
-        in_value = in_node_value.value
+    def _backward(self, grad: NodeValue) -> List[NodeValue]:
+        assert self._in_value is not None
 
-        in_grad = np.where(in_value >= 0.0, grad.value, 0.0)
+        in_grad = np.where(self._in_value >= 0.0, grad.value, 0.0)
         return [self.in_node.with_value(in_grad)]
 
 
@@ -298,18 +297,14 @@ class BCE(Operation):
         self.target_node = target_node
         self.reduction = reduction
 
-    def forward(self, node_values: List[NodeValue]) -> NodeValue:
-        in_value = None
-        target_value = None
-        for node_value in node_values:
-            if node_value.node.id_ == self.in_node.id_:
-                in_value = node_value.value
-            elif node_value.node.id_ == self.target_node.id_:
-                target_value = node_value.value
-        assert in_value is not None
-        assert target_value is not None
+        self._in_value: Optional[np.ndarray] = None
+        self._target_value: Optional[np.ndarray] = None
 
-        out_value = -target_value * _log_sigmoid(in_value) - (1.0-target_value)*_log_sigmoid(-in_value)
+    def _forward(self, node_values: Dict[Node, NodeValue]) -> NodeValue:
+        self._in_value = node_values[self.in_node].value
+        self._target_value = node_values[self.target_node].value
+
+        out_value = -self._target_value * _log_sigmoid(self._in_value) - (1.0-self._target_value)*_log_sigmoid(-self._in_value)
         if self.reduction == "mean":
             out_value = out_value.mean()
         elif self.reduction == "sum":
@@ -319,9 +314,11 @@ class BCE(Operation):
 
         return self.with_value(out_value)
 
-    def backward(self, grad: NodeValue) -> List[NodeValue]:
-        x = self._in_node_values[self.in_node.id_].value  # pyright: ignore
-        target = self._in_node_values[self.target_node.id_].value  # pyright: ignore
+    def _backward(self, grad: NodeValue) -> List[NodeValue]:
+        x = self._in_value
+        target = self._target_value
+        assert x is not None
+        assert target is not None
 
         function_grad = _sigmoid(x) - target
         in_grad = function_grad * grad.value  # Shape (batch, 1)*(1,) = (batch,)
@@ -342,18 +339,14 @@ class CrossEntropyLoss(Operation):
         self.target_node = target_node
         self.reduction = reduction
 
-    def forward(self, node_values: List[NodeValue]) -> NodeValue:
-        in_value = None
-        target_value = None
-        for node_value in node_values:
-            if node_value.node.id_ == self.in_node.id_:
-                in_value = node_value.value
-            elif node_value.node.id_ == self.target_node.id_:
-                target_value = node_value.value
-        assert in_value is not None
-        assert target_value is not None
+        self._in_value: Optional[np.ndarray] = None
+        self._target_value: Optional[np.ndarray] = None
 
-        out_value = -(target_value * log_softmax(in_value, axis=-1)).sum(axis=-1)
+    def _forward(self, node_values: Dict[Node, NodeValue]) -> NodeValue:
+        self._in_value = node_values[self.in_node].value
+        self._target_value = node_values[self.target_node].value
+
+        out_value = -(self._target_value * log_softmax(self._in_value, axis=-1)).sum(axis=-1)
         if self.reduction == "mean":
             out_value = out_value.mean()
         elif self.reduction == "sum":
@@ -363,9 +356,11 @@ class CrossEntropyLoss(Operation):
 
         return self.with_value(out_value)
 
-    def backward(self, grad: NodeValue) -> List[NodeValue]:
-        x = self._in_node_values[self.in_node.id_].value  # pyright: ignore
-        target = self._in_node_values[self.target_node.id_].value  # pyright: ignore
+    def _backward(self, grad: NodeValue) -> List[NodeValue]:
+        x = self._in_value
+        target = self._target_value
+        assert x is not None
+        assert target is not None
         target_sum = np.sum(target, axis=-1, keepdims=True)
 
         function_grad = target_sum * softmax(x, axis=-1) - target  # Shape (batch, categories)

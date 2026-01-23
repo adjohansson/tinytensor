@@ -30,4 +30,3 @@ class SGD(Optimizer):
                     param.value - self.lr*param.grad
                 )
 
-
