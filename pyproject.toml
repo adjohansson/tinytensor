@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tinytensor"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
   { name="Adam Johansson", email="adam.johansson.144@gmail.com" },
 ]
