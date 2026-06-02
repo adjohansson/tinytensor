@@ -1,18 +1,17 @@
 [build-system]
-requires = [
-    "setuptools >= 77.0.3",
-]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
+
 
 [project]
 name = "tinytensor"
-version = "0.1.1"
+version = "0.2.0-dev0"
 authors = [
   { name="Adam Johansson", email="adam.johansson.144@gmail.com" },
 ]
 description = "A small library for CPU-based automatic differentiation."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -24,3 +23,19 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/adjohansson/tinytensor"
 Issues = "https://github.com/adjohansson/tinytensor/issues"
+
+[dependency-groups]
+test = [
+    "pytest>=9.0.3",
+    "tinytensor",
+    "torch>=2.12.0",
+]
+
+[tool.uv.workspace]
+members = [
+    ".",
+]
+
+[tool.uv.sources]
+tinytensor = { workspace = true, editable = true }
+
