@@ -1,5 +1,7 @@
-from tinytensor.layers import Linear, ReLU, CrossEntropyLoss, DataNode
+from tinytensor.core import DataNode
+from tinytensor.layers import Linear, ReLU, CrossEntropyLoss
 import numpy as np
+
 
 def main():
     # Construct the graph

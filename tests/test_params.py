@@ -1,4 +1,5 @@
-from tinytensor.layers import Linear, Parameter
+from tinytensor.core import Parameter
+from tinytensor.layers import Linear
 import numpy as np
 
 

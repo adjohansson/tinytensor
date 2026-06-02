@@ -1,6 +1,7 @@
 import numpy as np
 
-from tinytensor.layers import Linear, Sigmoid, ReLU, BCE, Parameter, CrossEntropyLoss
+from tinytensor.core import Parameter
+from tinytensor.layers import Linear, Sigmoid, ReLU, BCE, CrossEntropyLoss
 
 
 def test_linear():

@@ -1,12 +1,10 @@
 from abc import ABC, abstractmethod
 
-from .layers import Parameter
-
-from typing import List
+from .core import Parameter
 
 
 class Optimizer(ABC):
-    def __init__(self, parameters: List[Parameter]):
+    def __init__(self, parameters: list[Parameter]):
         self.parameters = parameters
 
     def zero_grad(self):
@@ -19,7 +17,7 @@ class Optimizer(ABC):
                 
 
 class SGD(Optimizer):
-    def __init__(self, parameters: List[Parameter], lr: float):
+    def __init__(self, parameters: list[Parameter], lr: float):
         super().__init__(parameters)
         self.lr = lr
 

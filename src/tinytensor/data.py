@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from typing import Tuple, Iterator
+from typing import Iterator
 
 
 class ArrayDataset:
@@ -12,7 +12,7 @@ class ArrayDataset:
             if not array.shape[0] == self._len:
                 raise ValueError("Tried to create ArrayDataset with inconsistend number of datapoints.")
 
-    def __getitem__(self, idx: npt.NDArray[np.long]) -> Tuple[npt.NDArray[np.float32], ...]:
+    def __getitem__(self, idx: npt.NDArray[np.long]) -> tuple[npt.NDArray[np.float32], ...]:
         return tuple(array[idx, ...] for array in self._arrays)
 
     def __len__(self) -> int:
@@ -25,7 +25,7 @@ class DataLoader:
         self.shuffle = shuffle
         self.batch_size = batch_size
 
-    def __iter__(self) -> Iterator[Tuple[npt.NDArray, ...]]:
+    def __iter__(self) -> Iterator[tuple[npt.NDArray, ...]]:
         if self.shuffle:
             permutation = np.random.permutation(len(self.dataset))
         else:

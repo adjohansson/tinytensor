@@ -22,7 +22,8 @@ Correctness is validated via unit tests, but I make no guarantees beyond that.
 
 The user first defines the computation graph by wiring together layers and data nodes:
 ```python
-from tinytensor.layers import Linear, ReLU, CrossEntropyLoss, DataNode
+from tinytensor.core import DataNode
+from tinytensor.layers import Linear, ReLU, CrossEntropyLoss
 
 # Input data source
 input_ = DataNode(name="input", shape=(None, 28*28))
