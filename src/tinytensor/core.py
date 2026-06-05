@@ -28,6 +28,10 @@ class EmptyDataError(ValueError):
     pass
 
 
+class ShapeError(ValueError):
+    pass
+
+
 class Node:
     """
     Represents a point in the computation graph of a given module.
@@ -44,10 +48,10 @@ class Node:
 
     def with_value(self, value: np.ndarray) -> 'NodeValue':
         """
-        State that the value of this node is 'value'. Does modify the node internally.
+        Create object representing a value 'value' stored at this node. This operation does not mutate the underlying node.
         """
         if not _shapes_agree(self._shape, value.shape):
-            raise ValueError(f"Cannot assign value of shape {value.shape} to node of shape {self._shape}.")
+            raise ShapeError(f"Cannot assign value of shape {value.shape} to node of shape {self._shape}.")
         return NodeValue(self, value)
 
     @property
@@ -62,6 +66,7 @@ class Parameter(Node):
     """
     A node which holds independently controllable parameters.
     """
+
     def __init__(self, name: str, value: np.ndarray, requires_grad: bool):
         super().__init__(shape=value.shape)
         self.name = name
@@ -70,11 +75,17 @@ class Parameter(Node):
         self.requires_grad = requires_grad
 
     def set(self, value: np.ndarray):
+        """
+        Set the value contained in the parameter.
+        """
         if not _shapes_agree(self.shape, value.shape):
-            raise ValueError(f"Cannot assign value of shape {value.shape} to parameter of shape {self._shape}.")
+            raise ShapeError(f"Cannot assign value of shape {value.shape} to parameter of shape {self._shape}.")
         self.value = value
 
-    def add_grad(self, grad: np.ndarray):
+    def _add_grad(self, grad: np.ndarray):
+        """
+        Aggregate gradient 'grad' onto the Parameter.
+        """
         assert self.requires_grad
 
         if self.grad is None:
@@ -89,6 +100,7 @@ class DataNode(Node):
     """
     A node which holds fixed non-trainable data.
     """
+
     def __init__(self, name: str, shape: tuple[Optional[int], ...]):
         super().__init__(shape=shape)
         self.name = name
@@ -107,6 +119,11 @@ class NodeValue:
 
 
 class Operation(Node):
+    """
+    A node which is a differentiable function of the values at a number of input nodes.
+    Can hold trainable parameters.
+    """
+
     def __init__(self, in_nodes: list[Node], parameters: list[Parameter], shape: tuple[Optional[int], ...]):
         super().__init__(shape=shape)
         self._in_nodes = in_nodes
@@ -155,7 +172,7 @@ class Operation(Node):
                 value = node._forward_pass(values)
                 self._requires_grad = self._requires_grad or node._requires_grad
             else:
-                raise ValueError()
+                raise RuntimeError(f"Internal logic error: unrecognized node type {type(node)}")
 
             # Register the value at the node
             in_node_values[node] = value
@@ -166,6 +183,10 @@ class Operation(Node):
         return out_value
 
     def backward_pass(self, grad: Optional[NodeValue] = None):
+        """
+        Run a backpropagation backward pass with this node as the final node.
+        If the parameter 'grad' is passed, it is used as the output gradient, otherwise an output gradient of 1.0 is assumed.
+        """
         assert self._out_shape is not None
         if grad is None:
             grad = self.with_value(np.ones(self._out_shape))
@@ -177,7 +198,7 @@ class Operation(Node):
                 if input_node._requires_grad:
                     input_node.backward_pass(grad_value)
             elif isinstance(input_node, Parameter) and input_node.requires_grad:
-                input_node.add_grad(grad=grad_value.value)
+                input_node._add_grad(grad=grad_value.value)
 
     def _seek_parameters(self) -> set[Parameter]:
         parameters = set(self._parameters)
@@ -190,9 +211,15 @@ class Operation(Node):
         return parameters
 
     def parameters(self) -> list[Parameter]:
+        """
+        Enumerate all parameters upstream of this Operation.
+        """
         return list(self._all_parameters)
 
     def zero_grad(self):
+        """
+        Zero the gradients of all parameters upstream of this Operation.
+        """
         for parameter in self._all_parameters:
             parameter.grad = None
 

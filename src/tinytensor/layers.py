@@ -2,10 +2,14 @@ import numpy as np
 
 from typing import Optional
 
-from tinytensor.core import Node, NodeValue, Operation, Parameter
+from tinytensor.core import Node, NodeValue, Operation, Parameter, ShapeError
 
 
 class Linear(Operation):
+    """
+    A simple linear layer with trainable weight and bias parameters.
+    """
+
     def __init__(self, input_node: Node, out_features: int):
         fan_in = input_node.shape[1]
         assert isinstance(fan_in, int)
@@ -38,6 +42,10 @@ class Linear(Operation):
 
 
 class Sigmoid(Operation):
+    """
+    Element-wise sigmoid operation
+    """
+
     def __init__(self, input_node: Node):
         super().__init__(in_nodes=[input_node], parameters=[], shape=input_node.shape)
         self.in_node = input_node
@@ -60,6 +68,10 @@ class Sigmoid(Operation):
 
 
 class ReLU(Operation):
+    """
+    Element-wise ReLU operation.
+    """
+
     def __init__(self, input_node: Node):
         super().__init__(in_nodes=[input_node], parameters=[], shape=input_node.shape)
         self.in_node = input_node
@@ -103,12 +115,19 @@ def log_softmax(x: np.ndarray, axis: Optional[int]) -> np.ndarray:
 
 
 class BCE(Operation):
+    """
+    A binary cross-entropy operation, where input is assumed to be raw logits.
+    """
+
     def __init__(self, input_node: Node, target_node: Node, reduction="mean"):
-        assert input_node.shape == target_node.shape
+        if input_node.shape != target_node.shape:
+            raise ShapeError(f"Incompatible shapes for BCE operation. Input has shape {input_node.shape} while the target has shape {output_node.shape}")
 
         super().__init__(in_nodes=[input_node, target_node], parameters=[], shape=())
         self.in_node = input_node
         self.target_node = target_node
+        if reduction not in ["mean", "sum"]:
+            raise ValueError(f"Found invalid reduction {reduction} for CrossEntropyLoss")
         self.reduction = reduction
 
         self._in_value: Optional[np.ndarray] = None
@@ -124,7 +143,7 @@ class BCE(Operation):
         elif self.reduction == "sum":
             out_value = out_value.sum()
         else:
-            raise ValueError()
+            raise RuntimeError(f"Logic error: Invalid reduction {self.reduction}")
 
         return self.with_value(out_value)
 
@@ -135,7 +154,7 @@ class BCE(Operation):
         assert target is not None
 
         function_grad = _sigmoid(x) - target
-        in_grad = function_grad * grad.value  # Shape (batch, 1)*(1,) = (batch,)
+        in_grad = function_grad * grad.value
         if self.reduction == "mean":
             in_grad /= in_grad.size
 
@@ -145,7 +164,14 @@ class BCE(Operation):
 
 
 class CrossEntropyLoss(Operation):
+    """
+    A multi-label cross-entropy loss operation.
+    Assumes one-hot encoded input and target, and raw logits for the input.
+    """
+
     def __init__(self, input_node: Node, target_node: Node, reduction="mean"):
+        if input_node.shape != target_node.shape:
+            raise ShapeError(f"Incompatible shapes for CrossEntropyLoss operation. Input has shape {input_node.shape} while the target has shape {output_node.shape}")
         assert input_node.shape == target_node.shape
 
         super().__init__(in_nodes=[input_node, target_node], parameters=[], shape=())
