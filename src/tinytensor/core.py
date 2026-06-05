@@ -13,6 +13,8 @@ from typing import Optional, Any
 def _shapes_agree(shape1: tuple[Optional[int], ...], shape2: tuple[Optional[int]]) -> bool:
     if shape1 == shape2:
         return True
+    if len(shape1) != len(shape2):
+        return False
 
     for s, v in zip(shape1, shape2):
         if s is None or v is None:
