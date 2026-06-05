@@ -22,7 +22,7 @@ class LinearCombination(Operation):
                 raise ValueError(f"Number of coefficients did not match number of input nodes: coefficients={coefficients}, input_nodes={input_nodes}")
             
             self.coefficients = [
-                Parameter(f"coefficient_{i}", c, requires_grad=requires_grad)
+                Parameter(f"coefficient_{i}", np.array(c), requires_grad=requires_grad)
                 for i, c in enumerate(coefficients)
             ]
         else:
@@ -45,7 +45,7 @@ class LinearCombination(Operation):
 
         out_value = sum(
             (tensor*coefficient.value for tensor, coefficient in zip(self._in_values, self.coefficients)),
-            start=np.zeros(self.shape)
+            start=0.0
         )
         return self.with_value(out_value)
 
@@ -54,9 +54,9 @@ class LinearCombination(Operation):
 
         grads = []
 
-        for coefficient, node in zip(self.coefficients, self.in_nodes):
+        for coefficient, node, in_value in zip(self.coefficients, self.in_nodes, self._in_values):
             grads.append(
-                coefficient.with_value(np.sum(node.value * grad.value))
+                coefficient.with_value(np.sum(in_value * grad.value))
             )
             if isinstance(node, Operation) and node._requires_grad or isinstance(node, Parameter) and node.requires_grad:
                 grads.append(
